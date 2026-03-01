@@ -1,0 +1,13 @@
+{
+  "name": "xclouseau",
+  "private": true,
+  "scripts": {
+    "release": "release-it",
+    "release:minor": "release-it minor",
+    "release:major": "release-it major",
+    "release:dry": "release-it --dry-run"
+  },
+  "devDependencies": {
+    "release-it": "^18.1.0"
+  }
+}
