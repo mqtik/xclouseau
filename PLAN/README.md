@@ -42,17 +42,21 @@ Developers juggle multiple terminals across multiple machines. You're running Cl
 
 ## Core Features
 
-| Feature | Description | Inherited from LocalSend? |
-|---------|-------------|--------------------------|
+| Feature | Description | Inspiration |
+|---------|-------------|-------------|
 | Terminal emulator | Full PTY (bash, zsh, vim, nvim) via xterm.dart | New |
-| Project workspaces | Sidebar + tabs to organize terminals by project | New |
-| Remote terminal streaming | View/interact with terminals on other devices | New |
-| Device mesh | Any device connects to any other device | Extended |
-| File transfer | Send/receive files between any devices | Inherited |
+| Chrome-style tabs | Tab groups, pinned tabs, drag between groups, collapse | Chrome |
+| Project workspaces | Tab groups = projects, icon + color per project | Arc Spaces |
+| Durable sessions | Terminal survives disconnection + app restart, auto-reconnect | Wave Terminal |
+| Tab indicators | Error dot, activity pulse, restore recently closed tabs | Warp |
+| Remote terminal streaming | View/interact with terminals on other devices (P2P, zero servers) | New |
+| Device mesh | Any device connects to any other device, browse remote terminals | New |
+| Grid view | Block-based layout, drag to rearrange, all terminals live | Wave Terminal |
+| File transfer | Send/receive files between any devices | LocalSend |
 | AI CLI integration | Run claude/codex/gemini, send images from phone | New |
-| LAN discovery | Devices find each other automatically | Inherited |
-| End-to-end encryption | mTLS with self-signed certificates | Inherited |
-| Cross-platform | macOS, Windows, Linux, iOS, Android, Web | Inherited |
+| LAN discovery | Devices find each other automatically | LocalSend |
+| End-to-end encryption | mTLS with self-signed certificates | LocalSend |
+| Cross-platform | macOS, Windows, Linux, iOS, Android, Web | LocalSend |
 
 ## Tech Stack
 
@@ -64,7 +68,7 @@ Developers juggle multiple terminals across multiple machines. You're running Cl
 │         flutter_pty (PTY layer)         │
 ├─────────────────────────────────────────┤
 │     Rust Core (via flutter_rust_bridge) │
-│  crypto │ http server │ WebRTC          │
+│  crypto │ http client │ WebRTC          │
 ├─────────────────────────────────────────┤
 │        Platform (macOS/Win/Linux/       │
 │         iOS/Android/Web)                │

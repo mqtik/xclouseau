@@ -8,6 +8,9 @@ import 'package:localsend_app/model/cross_file.dart';
 import 'package:localsend_app/model/state/server/server_state.dart';
 import 'package:localsend_app/provider/network/server/controller/receive_controller.dart';
 import 'package:localsend_app/provider/network/server/controller/send_controller.dart';
+import 'package:localsend_app/provider/network/server/controller/pairing_controller.dart';
+import 'package:localsend_app/provider/network/server/controller/terminal_controller.dart';
+import 'package:localsend_app/provider/network/server/controller/web_preview_controller.dart';
 import 'package:localsend_app/provider/network/server/server_utils.dart';
 import 'package:localsend_app/provider/security_provider.dart';
 import 'package:localsend_app/provider/settings_provider.dart';
@@ -66,6 +69,11 @@ class ServerService extends Notifier<ServerState?> {
 
   late final _receiveController = ReceiveController(_serverUtils);
   late final _sendController = SendController(_serverUtils);
+  late final _terminalStreamController = TerminalStreamController(server: _serverUtils);
+  late final _pairingController = PairingController(server: _serverUtils);
+  late final _webPreviewController = WebPreviewController(server: _serverUtils);
+
+  TerminalStreamController get terminalStreamController => _terminalStreamController;
 
   ServerService();
 
@@ -119,6 +127,9 @@ class ServerService extends Notifier<ServerState?> {
       alias: alias,
       fingerprint: fingerprint,
     );
+    _terminalStreamController.installRoutes(router: router);
+    _pairingController.installRoutes(router: router);
+    _webPreviewController.installRoutes(router: router);
 
     _logger.info('Starting server...');
 
@@ -159,6 +170,9 @@ class ServerService extends Notifier<ServerState?> {
 
   Future<void> stopServer() async {
     _logger.info('Stopping server...');
+    try {
+      _terminalStreamController.closeAllViewers();
+    } catch (_) {}
     await state?.httpServer.close();
     state = null;
     _logger.info('Server stopped.');

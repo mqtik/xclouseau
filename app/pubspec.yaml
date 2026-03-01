@@ -79,6 +79,11 @@ dependencies:
   win32_registry: 1.1.5
   window_manager: 0.5.1
   windows_taskbar: 1.1.2
+  xterm:
+    git:
+      url: https://github.com/mqtik/xterm.dart.git
+      ref: fix-flutter-3.32
+  flutter_pty: ^0.4.2
   yaru: 8.3.0
 
 dev_dependencies:

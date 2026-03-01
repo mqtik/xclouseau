@@ -20,40 +20,58 @@ WP-01 ──► WP-03 ──► WP-06 ──► WP-11 ──► WP-15
   │
   ▼
 WP-02 ──► WP-03
-            │
-            ▼
-          WP-10 ──► WP-12 ──► WP-13 ──► WP-14
+  │         │
+  │         ▼
+  ▼       WP-10 ──► WP-12A ──► WP-12 ──► WP-13 ──► WP-14
+WP-04                                                  │
+(also                                                   ▼
+ needs                                               WP-14
+ WP-02)                                        (also needs WP-13)
 
-WP-22 through WP-26: Rebranding (independent of all feature work)
+WP-22 through WP-26: Rebranding (independent of feature work, Batch 5)
 WP-27 through WP-30: Polish (depends on all feature work)
+WP-31: Rust PTY daemon (Batch 5, parallel with streaming)
+WP-32: Terminal file drop + pickers (Batch 7, Phase 3)
+WP-33: Web preview — reverse proxy + WebView tab (Batch 7, Phase 3)
 
 Legend:
   WP-XX ──► WP-YY means "WP-YY depends on WP-XX"
+
+Key dependency fixes vs. original plan:
+  - WP-04 depends on BOTH WP-01 and WP-02 (needs model types)
+  - WP-14 depends on WP-13 (needs remote terminal provider)
+  - WP-12A (NEW): SimpleServer upgrade, prerequisite for WP-12
+  - Rebranding moved from Batch 1 to Batch 5 (avoids merge conflicts)
 ```
 
 ## Parallel Batches
 
 ```
-BATCH 1 (no dependencies — start immediately):
-  WP-01, WP-02, WP-22, WP-23, WP-24, WP-25, WP-26
+BATCH 1 ✅ COMPLETE (2026-02-26):
+  WP-01 ✅, WP-02 ✅
 
-BATCH 2 (depends on WP-01 + WP-02):
-  WP-03, WP-04, WP-05
+BATCH 2 ✅ COMPLETE (2026-02-26):
+  WP-03 ✅, WP-04 ✅, WP-05 ✅
 
-BATCH 3 (depends on WP-03):
-  WP-06, WP-07, WP-08, WP-09, WP-10
+BATCH 3 ✅ COMPLETE (2026-02-27):
+  WP-06 ✅, WP-07 ✅, WP-08 ✅, WP-09 ✅, WP-10 ✅
 
-BATCH 4 (depends on Batch 3):
-  WP-11, WP-12
+BATCH 4 ✅ COMPLETE (2026-02-27):
+  WP-11 ✅, WP-12A ✅
 
-BATCH 5 (depends on Batch 4):
-  WP-13, WP-14, WP-15, WP-16
+BATCH 5 ✅ COMPLETE (2026-02-27) — streaming server done, daemon/rebranding deferred:
+  WP-12 ✅  (terminal streaming server)
+  WP-31 ⬜  (Rust PTY daemon — deferred)
+  WP-22-26 ⬜  (rebranding — deferred)
 
-BATCH 6 (depends on Batch 5):
-  WP-17, WP-18, WP-19, WP-20, WP-21
+BATCH 6 ✅ COMPLETE (2026-02-28):
+  WP-13 ✅, WP-14 ✅, WP-15 ✅, WP-16 ✅
 
-BATCH 7 (depends on all):
-  WP-27, WP-28, WP-29, WP-30
+BATCH 7 ✅ COMPLETE (2026-02-28):
+  WP-17 ✅, WP-18 ✅, WP-19 ✅, WP-20 ✅, WP-21 ✅, WP-32 ✅, WP-33 ✅
+
+BATCH 8 ✅ COMPLETE (2026-02-28):
+  WP-27 ✅, WP-28 ✅, WP-29 ✅, WP-30 ✅
 ```
 
 ---
@@ -70,10 +88,20 @@ BATCH 7 (depends on all):
 - `app/pubspec.yaml`
 
 **Actions**:
-1. Add `xterm: ^3.2.6` to dependencies
-2. Add `flutter_pty: ^0.4.0` to dependencies
+1. Add `xterm: ^4.0.0` (latest on pub.dev). Test keyboard input — if typing doesn't work (issue #207, broken on Flutter 3.32+), switch to git dependency with PR #210 fix:
+   ```yaml
+   xterm:
+     git:
+       url: https://github.com/mqtik/xterm.dart.git
+       ref: fix-flutter-3.32
+   ```
+   (Fork xterm.dart, cherry-pick PR #210, push as `fix-flutter-3.32` branch)
+2. Add `flutter_pty: ^0.4.2` to dependencies (only for non-web platforms — add platform conditional if needed)
 3. Run `flutter pub get`
 4. Verify build succeeds on macOS: `flutter build macos`
+5. Test keyboard input specifically — type characters and verify they appear in terminal
+
+**Backup plan**: If xterm.dart doesn't work with Flutter 3.35.6 even with PR #210, use xterm.js via flutter_inappwebview as fallback (see architecture.md notes)
 
 **Output**: Updated `app/pubspec.yaml` with new dependencies, clean build
 
@@ -81,6 +109,7 @@ BATCH 7 (depends on all):
 - [ ] `flutter pub get` succeeds
 - [ ] `flutter build macos` succeeds (or `flutter run -d macos` launches)
 - [ ] No dependency conflicts
+- [ ] Terminal renders basic output (echo "hello")
 
 ---
 
@@ -88,26 +117,34 @@ BATCH 7 (depends on all):
 
 **Phase**: 1 | **Batch**: 1 | **Dependencies**: none
 
-**Scope**: Create the Project, TerminalSession, and related models with JSON serialization.
+**Scope**: Create all data models with JSON serialization: Project (with icon, isCollapsed, viewMode), TerminalSession (with isPinned, order), SessionSource (local, remote, config), LiveTerminal (with lastExitCode, hasUnreadOutput), ClosedTab, ViewMode enum.
 
 **Input files**: none (new files)
 
 **Actions**:
-1. Create `app/lib/model/project.dart` with Project and TerminalSession classes
-2. Create `app/lib/model/terminal_session_source.dart` with SessionSource sealed class
-3. Add dart_mappable annotations for JSON serialization
-4. Run code generation if needed
+1. Create `app/lib/model/project.dart` with Project class (id, name, colorValue, icon, isCollapsed, viewMode, sessions, defaultWorkingDir, createdAt)
+2. Create `app/lib/model/terminal_session.dart` with TerminalSession class (id, name, workingDir, source, isPinned, order, createdAt)
+3. Create `app/lib/model/terminal_session_source.dart` with SessionSource sealed class (local, remote, config)
+4. Create `app/lib/model/live_terminal.dart` with LiveTerminal class (sessionId, terminal, pty, webSocket, mode, status, lastExitCode, hasUnreadOutput)
+5. Create `app/lib/model/closed_tab.dart` with ClosedTab class (session, projectId, closedAt)
+6. Add dart_mappable annotations for JSON serialization on persisted models
+7. Run code generation if needed
 
 **Output files**:
 - `app/lib/model/project.dart`
+- `app/lib/model/terminal_session.dart`
 - `app/lib/model/terminal_session_source.dart`
+- `app/lib/model/live_terminal.dart`
+- `app/lib/model/closed_tab.dart`
 
 **Reference**: See [data-model.md](data-model.md) for exact field specs
 
 **Acceptance criteria**:
 - [ ] Models serialize to/from JSON correctly
-- [ ] Project contains list of TerminalSession
-- [ ] SessionSource supports local and remote variants
+- [ ] Project contains list of TerminalSession with all Chrome-style fields
+- [ ] SessionSource supports local, remote, and config variants
+- [ ] ClosedTab model works for restore-recently-closed feature
+- [ ] LiveTerminal includes lastExitCode and hasUnreadOutput fields
 
 ---
 
@@ -143,23 +180,30 @@ BATCH 7 (depends on all):
 
 ### WP-04: Terminal Provider (Local PTY)
 
-**Phase**: 1 | **Batch**: 2 | **Dependencies**: WP-01
+**Phase**: 1 | **Batch**: 2 | **Dependencies**: WP-01, WP-02
 
 **Scope**: Refena provider managing live Terminal and Pty instances.
 
 **Input files**:
 - `app/pubspec.yaml` (xterm + flutter_pty from WP-01)
+- `app/lib/model/project.dart` (TerminalSession model from WP-02)
 
 **Actions**:
 1. Create `app/lib/provider/terminal_provider.dart`
-2. Implement: SpawnTerminal (creates Terminal + Pty, wires I/O), KillTerminal, ResizeTerminal, WriteToTerminal
-3. Map: session ID → LiveTerminal (Terminal + Pty + status)
-4. Handle PTY lifecycle: detect process exit, update status
-5. Platform-aware shell detection (zsh on macOS, bash on Linux, powershell on Windows)
+2. Define `PtyBackend` abstract interface (spawn, write, resize, kill) so the backend can be swapped from flutter_pty (Phase 1) to daemon client (Phase 2) without changing the provider
+3. Create `app/lib/provider/pty_backend_local.dart` — flutter_pty implementation of PtyBackend
+4. Implement: SpawnTerminal (creates Terminal + PtyBackend, wires I/O), KillTerminal, ResizeTerminal, WriteToTerminal
+5. Map: session ID → LiveTerminal (Terminal + PtyBackend + status)
+6. Handle PTY lifecycle: detect process exit, update status
+7. Platform-aware shell detection (zsh on macOS, bash on Linux, powershell on Windows)
+8. Parse OSC 7 escape sequences from PTY output to track `currentWorkingDir` per session
 
 **Output files**:
 - `app/lib/provider/terminal_provider.dart`
+- `app/lib/provider/pty_backend.dart` (abstract interface)
+- `app/lib/provider/pty_backend_local.dart` (flutter_pty implementation)
 - `app/lib/model/live_terminal.dart`
+- `app/lib/util/osc7_parser.dart`
 
 **Reference**: See [data-model.md](data-model.md) for LiveTerminal spec
 
@@ -170,6 +214,8 @@ BATCH 7 (depends on all):
 - [ ] Process exit detected and status updated
 - [ ] Resize works
 - [ ] Multiple terminals can run simultaneously
+- [ ] PtyBackend interface allows swapping implementation without provider changes
+- [ ] OSC 7 parsing updates currentWorkingDir on LiveTerminal
 
 ---
 
@@ -202,69 +248,85 @@ BATCH 7 (depends on all):
 
 ---
 
-### WP-06: Project Sidebar Widget
+### WP-06: Device Sidebar Widget
 
 **Phase**: 1 | **Batch**: 3 | **Dependencies**: WP-03
 
-**Scope**: Create the sidebar widget showing projects, devices, and settings.
+**Scope**: Create a narrow sidebar showing devices only (no projects — those are tab groups in the tab bar). Inspired by Arc's clean, minimal sidebar.
 
 **Input files**:
-- `app/lib/provider/project_provider.dart` (from WP-03)
-- `app/lib/widget/list_tile/custom_list_tile.dart` (existing, reuse)
 - `app/lib/widget/list_tile/device_list_tile.dart` (existing, reuse)
 - `app/lib/provider/network/nearby_devices_provider.dart` (existing, reuse)
 
 **Actions**:
-1. Create `app/lib/widget/sidebar/project_sidebar.dart`
-2. Sections: Projects (expandable with sessions), Devices (from nearbyDevicesProvider), Settings button
-3. Click project → expand/collapse sessions
-4. Click session → dispatch SetActiveSession
-5. Click device → navigate to device detail
-6. Collapsible sidebar (220px expanded, 60px icon-only)
+1. Create `app/lib/widget/sidebar/device_sidebar.dart`
+2. Device section: paired + nearby devices (from nearbyDevicesProvider)
+3. Each device expandable to show its remote terminal sessions
+4. Tap a remote terminal → opens as a tab in the tab bar
+5. Device states: ● online, ○ offline, ◐ connecting
+6. [+ Pair] button at bottom opens pairing flow
+7. ⚙ Config button opens Config as a tab
+8. Collapsible sidebar (~140px expanded, ~40px icon-only)
 
 **Output files**:
-- `app/lib/widget/sidebar/project_sidebar.dart`
+- `app/lib/widget/sidebar/device_sidebar.dart`
 
 **Reference**: See [ui-structure.md](ui-structure.md) for wireframe
 
 **Acceptance criteria**:
-- [ ] Projects listed with color indicators
-- [ ] Projects expandable to show terminal sessions
-- [ ] Nearby devices shown in device section
-- [ ] Settings button navigates to settings
-- [ ] Sidebar collapses on narrow screens
+- [ ] Paired and nearby devices listed with status indicators
+- [ ] Devices expandable to show remote terminal sessions
+- [ ] Config button opens Config as a tab
+- [ ] Pair button present
+- [ ] Sidebar collapses on narrow screens / tablet
 
 ---
 
-### WP-07: Terminal Tab Bar Widget
+### WP-07: Chrome-Style Tab Bar Widget
 
 **Phase**: 1 | **Batch**: 3 | **Dependencies**: WP-03
 
-**Scope**: Horizontal scrollable tab bar for terminal sessions.
+**Scope**: Chrome-style tab bar with tab groups (projects), pinned tabs, drag-and-drop, and context menus. This is the primary navigation — no project sidebar.
+
+**Design influences**: Chrome (tab groups, pins, drag), Arc (icon+color per group), Warp (restore closed tabs, error indicators).
 
 **Input files**:
 - `app/lib/provider/project_provider.dart` (from WP-03)
 
 **Actions**:
-1. Create `app/lib/widget/terminal_tab_bar.dart`
-2. Horizontal scrollable tabs showing session names
-3. Active tab highlighted with project color
-4. Close button on each tab (except last one in project)
-5. "+" button to add new terminal
-6. View mode toggle buttons (list/grid/carousel)
-7. Drag-to-reorder tabs
+1. Create `app/lib/widget/chrome_tab_bar.dart`
+2. Tab groups = projects (colored label, collapsible, named)
+3. Pinned tabs = compact icons at far left, persist across groups
+4. Drag tabs to reorder within group
+5. Drag tabs between groups
+6. Close button (✕) on hover, middle-click to close
+7. [+] button creates new tab in active group
+8. Collapse group = hides tabs, shows only colored label
+9. Double-click tab to rename (Warp-style)
+10. Right-click tab → context menu: rename, pin/unpin, move to group, close, close others, close to right
+11. Right-click group label → rename group, change color, ungroup, close group
+12. View mode toggle (list/grid/carousel) at right end
+13. Tab indicators: error dot (red), activity pulse (background tab output)
+14. Restore recently closed tab (Ctrl+Shift+T, stack of last 10)
 
 **Output files**:
-- `app/lib/widget/terminal_tab_bar.dart`
+- `app/lib/widget/chrome_tab_bar.dart`
+- `app/lib/widget/tab_group.dart`
 
-**Reference**: See [ui-structure.md](ui-structure.md) for wireframe
+**Reference**: See [ui-structure.md](ui-structure.md) for wireframe and design influences
 
 **Acceptance criteria**:
-- [ ] Tabs display session names
-- [ ] Active tab visually highlighted
+- [ ] Tab groups display with project color + name
+- [ ] Pinned tabs stay at left, compact
+- [ ] Drag tabs between groups works
+- [ ] Collapse/expand groups works
 - [ ] Close button removes session
-- [ ] "+" creates new terminal in active project
-- [ ] View mode toggle buttons present (functionality in WP-20)
+- [ ] Context menus work (tab + group label)
+- [ ] Double-click to rename
+- [ ] [+] creates new terminal in active group
+- [ ] View mode toggle buttons present
+- [ ] Tab error/activity indicators visible
+- [ ] Ctrl+Shift+T restores last closed tab
 - [ ] Scrolls when too many tabs
 
 ---
@@ -285,9 +347,13 @@ BATCH 7 (depends on all):
 4. Handles focus (keyboard goes to active terminal)
 5. Handles resize (LayoutBuilder → TerminalProvider.resize)
 6. Context menu: copy, paste, clear
+7. Create `app/lib/util/url_detector.dart` — regex-based URL detection over terminal buffer text
+8. URL interaction: Cmd+click (desktop) or long-press (mobile) on detected URL opens menu with "Open in browser" / "Open in web preview tab" options
+9. URL highlight: detected URLs get underline styling on hover (desktop) or when long-press target (mobile)
 
 **Output files**:
 - `app/lib/pages/tabs/terminal_tab.dart`
+- `app/lib/util/url_detector.dart`
 
 **Acceptance criteria**:
 - [ ] Terminal renders shell output with ANSI colors
@@ -296,6 +362,10 @@ BATCH 7 (depends on all):
 - [ ] Resize re-flows content correctly
 - [ ] Copy/paste works
 - [ ] Multiple terminal tabs can exist simultaneously
+- [ ] URLs in terminal output are detected and highlighted on hover/long-press
+- [ ] Cmd+click (desktop) or long-press (mobile) on URL shows action menu
+- [ ] "Open in browser" launches system browser
+- [ ] "Open in web preview" opens a web preview tab (localhost URLs only)
 
 ---
 
@@ -332,7 +402,7 @@ BATCH 7 (depends on all):
 
 **Phase**: 1 | **Batch**: 3 | **Dependencies**: WP-03
 
-**Scope**: Replace LocalSend's 3-tab NavigationRail with sidebar + workspace layout.
+**Scope**: Replace LocalSend's 3-tab NavigationRail with Chrome-style tab bar + narrow device sidebar layout.
 
 **Input files**:
 - `app/lib/pages/home_page.dart` (existing, replace)
@@ -341,24 +411,26 @@ BATCH 7 (depends on all):
 
 **Actions**:
 1. Create `app/lib/pages/workspace_page.dart` — new main page
-2. Desktop: Row with ProjectSidebar + Expanded content area
-3. Mobile: PageView with bottom NavigationBar (Terminals/Devices/Settings)
-4. Update HomeTab enum to {workspace, devices, settings}
+2. Desktop: Row with DeviceSidebar (~140px) + Expanded(Column(ChromeTabBar + TerminalContent))
+3. Mobile: Column(ChromeTabBar + PageView + BottomNavigationBar(Terminals/Devices/Config))
+4. Config opens as a tab (not a separate page) — like chrome://settings
 5. Update main.dart to use WorkspacePage instead of HomePage
-6. Keep existing send/receive tabs accessible under "Devices"
+6. Keep existing send/receive accessible via Config tab
 
 **Output files**:
 - `app/lib/pages/workspace_page.dart`
+- `app/lib/pages/config_page.dart` (Config as a tab)
 - Modified `app/lib/pages/home_page_controller.dart`
 - Modified `app/lib/main.dart`
 
 **Reference**: See [ui-structure.md](ui-structure.md) for layout wireframes
 
 **Acceptance criteria**:
-- [ ] Desktop shows sidebar + content area
-- [ ] Mobile shows bottom nav with 3 sections
-- [ ] File transfer still works via Devices section
-- [ ] Responsive transitions at breakpoints (700px, 800px)
+- [ ] Desktop shows Chrome-style tab bar + device sidebar + terminal content
+- [ ] Mobile shows compact tab bar + bottom nav (Terminals/Devices/Config)
+- [ ] Config opens as a tab, not a separate screen
+- [ ] File transfer accessible via Config tab
+- [ ] Responsive transitions at breakpoints (500, 700, 900px)
 
 ---
 
@@ -393,9 +465,41 @@ BATCH 7 (depends on all):
 
 ---
 
+### WP-12A: SimpleServer Routing Upgrade
+
+**Phase**: 2 | **Batch**: 4 | **Dependencies**: WP-11
+
+**Scope**: Upgrade the Dart HTTP server routing to support parameterized routes and WebSocket upgrades — prerequisites for terminal streaming.
+
+**Input files**:
+- `app/lib/util/simple_server.dart` (existing)
+- `app/lib/provider/network/server/server_provider.dart` (existing)
+
+**Actions**:
+1. Extend SimpleServer to support parameterized routes (e.g., `/sessions/:id/attach`)
+2. Add WebSocket upgrade handling (detect `Upgrade: websocket` header, use `dart:io WebSocket.fromUpgradedSocket()`)
+3. Ensure existing file transfer routes still work unchanged
+4. Add route pattern matching with parameter extraction
+
+**Options**:
+- Option A: Extend SimpleServer with regex-based route matching + WebSocket detection
+- Option B: Replace SimpleServer with `shelf` + `shelf_web_socket` packages
+- Option C: Handle WebSocket upgrade inside individual route handlers using raw HttpRequest
+
+**Output files**:
+- Modified `app/lib/util/simple_server.dart` (or replacement)
+
+**Acceptance criteria**:
+- [ ] Parameterized routes work: GET /api/xclouseau/v1/sessions/:id/attach extracts `:id`
+- [ ] WebSocket upgrade works: connection upgrades successfully
+- [ ] Existing file transfer routes unaffected
+- [ ] All existing tests pass
+
+---
+
 ### WP-12: Terminal Streaming Server (Host Side)
 
-**Phase**: 2 | **Batch**: 4 | **Dependencies**: WP-04, WP-10
+**Phase**: 2 | **Batch**: 5 | **Dependencies**: WP-04, WP-10, WP-12A
 
 **Scope**: Server-side routes that expose terminal sessions for remote viewing.
 
@@ -430,7 +534,7 @@ BATCH 7 (depends on all):
 
 ### WP-13: Remote Terminal Provider (Client Side)
 
-**Phase**: 2 | **Batch**: 5 | **Dependencies**: WP-12
+**Phase**: 2 | **Batch**: 6 | **Dependencies**: WP-12
 
 **Scope**: Client-side provider for connecting to remote terminal sessions.
 
@@ -462,7 +566,7 @@ BATCH 7 (depends on all):
 
 ### WP-14: Device Terminal Browser
 
-**Phase**: 2 | **Batch**: 5 | **Dependencies**: WP-12
+**Phase**: 2 | **Batch**: 6 | **Dependencies**: WP-12, WP-13
 
 **Scope**: Page showing available terminal sessions on a remote device.
 
@@ -490,7 +594,7 @@ BATCH 7 (depends on all):
 
 ### WP-15: Terminal Tab Widget (Remote Mode)
 
-**Phase**: 2 | **Batch**: 5 | **Dependencies**: WP-08, WP-13
+**Phase**: 2 | **Batch**: 6 | **Dependencies**: WP-08, WP-13
 
 **Scope**: Extend terminal_tab.dart to support remote mode.
 
@@ -517,7 +621,7 @@ BATCH 7 (depends on all):
 
 ### WP-16: View-Only Toggle
 
-**Phase**: 2 | **Batch**: 5 | **Dependencies**: WP-15
+**Phase**: 2 | **Batch**: 6 | **Dependencies**: WP-15
 
 **Scope**: Toggle between interactive and view-only mode on remote terminals.
 
@@ -545,7 +649,7 @@ BATCH 7 (depends on all):
 
 ### WP-17: Mobile Terminal Viewer
 
-**Phase**: 3 | **Batch**: 6 | **Dependencies**: WP-15
+**Phase**: 3 | **Batch**: 7 | **Dependencies**: WP-15
 
 **Scope**: Optimize terminal viewing for mobile devices.
 
@@ -572,20 +676,28 @@ BATCH 7 (depends on all):
 
 ### WP-18: Image-to-Terminal Pipeline
 
-**Phase**: 3 | **Batch**: 6 | **Dependencies**: WP-11
+**Phase**: 3 | **Batch**: 7 | **Dependencies**: WP-11, WP-19
 
-**Scope**: When a file is received from another device, offer to paste its path into the active terminal.
+**Scope**: When a file is received from another device, perform context-aware paste: AI CLI mode copies to clipboard + simulates Cmd+V; normal terminal copies file to pwd and types filename.
 
 **Input files**:
 - `app/lib/provider/network/server/controller/receive_controller.dart` (existing)
 - `app/lib/provider/terminal_provider.dart` (from WP-04)
+- `app/lib/util/ai_cli_detector.dart` (from WP-19)
 
 **Actions**:
 1. Create `app/lib/provider/file_terminal_bridge.dart`
 2. Listen for file receive events from receive_controller
-3. When file received: show notification with file name, thumbnail (if image), and "Paste to terminal" button
-4. "Paste to terminal": calls terminalProvider.writeToTerminal(activeSessionId, filePath)
-5. File path is written as text input to the PTY
+3. Terminal-targeted files saved to platform cache dir:
+   - macOS: `~/Library/Caches/xClouseau/received/`
+   - Linux: `~/.cache/xclouseau/received/`
+   - Windows: `%LOCALAPPDATA%\xClouseau\cache\received\`
+4. When file received: show notification with "Paste to terminal" and "Save to Downloads"
+5. Context-aware paste logic:
+   - AI CLI detected → copy image to clipboard → simulate Cmd+V/Ctrl+V key event
+   - Normal terminal → copy file to terminal's `currentWorkingDir` (from OSC 7) → type filename into PTY
+6. Auto-cleanup: delete cached files older than 7 days (configurable in settings)
+7. Regular file transfers still use LocalSend's `destination` setting (~/Downloads)
 
 **Output files**:
 - `app/lib/provider/file_terminal_bridge.dart`
@@ -594,16 +706,18 @@ BATCH 7 (depends on all):
 **Reference**: See [ai-integration.md](ai-integration.md) for pipeline diagram
 
 **Acceptance criteria**:
-- [ ] File received → notification appears
-- [ ] Notification shows file name and thumbnail for images
-- [ ] "Paste to terminal" types path into active terminal
-- [ ] Works with any file type
+- [ ] File received → notification appears with context-aware options
+- [ ] AI CLI active → image pasted via clipboard Cmd+V
+- [ ] Normal terminal → file copied to pwd, filename typed
+- [ ] Terminal-targeted files stored in platform cache dir (not ~/Downloads)
+- [ ] Auto-cleanup of cached files works
+- [ ] Regular file transfers still use LocalSend's destination setting
 
 ---
 
 ### WP-19: AI CLI Detection
 
-**Phase**: 3 | **Batch**: 6 | **Dependencies**: WP-08
+**Phase**: 3 | **Batch**: 7 | **Dependencies**: WP-08
 
 **Scope**: Detect when an AI CLI tool is running in a terminal tab and show enhanced UI.
 
@@ -633,7 +747,7 @@ BATCH 7 (depends on all):
 
 ### WP-20: View Modes (Grid + Carousel)
 
-**Phase**: 3 | **Batch**: 6 | **Dependencies**: WP-08, WP-07
+**Phase**: 3 | **Batch**: 7 | **Dependencies**: WP-08, WP-07
 
 **Scope**: Grid and carousel view modes for terminal tabs.
 
@@ -668,7 +782,7 @@ BATCH 7 (depends on all):
 
 ### WP-21: Keyboard Shortcuts
 
-**Phase**: 3 | **Batch**: 6 | **Dependencies**: WP-11
+**Phase**: 3 | **Batch**: 7 | **Dependencies**: WP-11
 
 **Scope**: Desktop keyboard shortcuts for workspace management.
 
@@ -689,16 +803,21 @@ BATCH 7 (depends on all):
 **Output files**:
 - Modified `app/lib/widget/watcher/shortcut_watcher.dart`
 
+**Key challenge**: Shortcuts like Ctrl+T, Ctrl+W, Ctrl+N conflict with terminal programs (vim, tmux, etc.). The PTY receives ALL keyboard input when focused. App-level shortcuts must intercept BEFORE the PTY gets the keystrokes.
+
+**Approach**: Use a modifier key (e.g., Ctrl+Shift) for app shortcuts to avoid PTY conflicts. Alternatively, use a "leader key" pattern (press Escape or Ctrl+A first, then the shortcut key — like tmux).
+
 **Acceptance criteria**:
 - [ ] All shortcuts work on desktop
-- [ ] Shortcuts don't conflict with terminal (Ctrl handled at app level vs PTY)
+- [ ] Shortcuts don't conflict with terminal apps (vim, tmux, etc.)
+- [ ] PTY-focused shortcuts use a distinct modifier (Ctrl+Shift or leader key)
 - [ ] Shortcuts documented in settings
 
 ---
 
 ### WP-22: Rebranding — Android
 
-**Phase**: 4 | **Batch**: 1 | **Dependencies**: none
+**Phase**: 4 | **Batch**: 5 | **Dependencies**: WP-11
 
 **Scope**: Rename LocalSend → xClouseau in Android platform files.
 
@@ -724,7 +843,7 @@ BATCH 7 (depends on all):
 
 ### WP-23: Rebranding — iOS
 
-**Phase**: 4 | **Batch**: 1 | **Dependencies**: none
+**Phase**: 4 | **Batch**: 5 | **Dependencies**: WP-11
 
 **Scope**: Rename in iOS platform files.
 
@@ -745,7 +864,7 @@ BATCH 7 (depends on all):
 
 ### WP-24: Rebranding — macOS
 
-**Phase**: 4 | **Batch**: 1 | **Dependencies**: none
+**Phase**: 4 | **Batch**: 5 | **Dependencies**: WP-11
 
 **Scope**: Rename in macOS platform files.
 
@@ -767,7 +886,7 @@ BATCH 7 (depends on all):
 
 ### WP-25: Rebranding — Windows + Linux
 
-**Phase**: 4 | **Batch**: 1 | **Dependencies**: none
+**Phase**: 4 | **Batch**: 5 | **Dependencies**: WP-11
 
 **Scope**: Rename in Windows and Linux platform files.
 
@@ -791,7 +910,7 @@ BATCH 7 (depends on all):
 
 ### WP-26: Rebranding — Web + Build Scripts + pubspec
 
-**Phase**: 4 | **Batch**: 1 | **Dependencies**: none
+**Phase**: 4 | **Batch**: 5 | **Dependencies**: WP-11
 
 **Scope**: Rename in web platform, build scripts, and pubspec.
 
@@ -818,7 +937,7 @@ BATCH 7 (depends on all):
 
 ### WP-27: Terminal Themes
 
-**Phase**: Polish | **Batch**: 7 | **Dependencies**: WP-08
+**Phase**: Polish | **Batch**: 8 | **Dependencies**: WP-08
 
 **Scope**: Bundled terminal color themes.
 
@@ -838,7 +957,7 @@ BATCH 7 (depends on all):
 
 ### WP-28: Terminal Font Selection
 
-**Phase**: Polish | **Batch**: 7 | **Dependencies**: WP-08
+**Phase**: Polish | **Batch**: 8 | **Dependencies**: WP-08
 
 **Scope**: Font family and size configuration for terminals.
 
@@ -857,7 +976,7 @@ BATCH 7 (depends on all):
 
 ### WP-29: Integration Testing
 
-**Phase**: Polish | **Batch**: 7 | **Dependencies**: all
+**Phase**: Polish | **Batch**: 8 | **Dependencies**: all
 
 **Scope**: End-to-end tests for critical flows.
 
@@ -876,7 +995,7 @@ BATCH 7 (depends on all):
 
 ### WP-30: App Icon
 
-**Phase**: Polish | **Batch**: 7 | **Dependencies**: none
+**Phase**: Polish | **Batch**: 8 | **Dependencies**: none
 
 **Scope**: Design and place xClouseau app icon across all platforms.
 
@@ -895,3 +1014,152 @@ BATCH 7 (depends on all):
 **Acceptance criteria**:
 - [ ] Custom icon appears on all platforms
 - [ ] No remaining LocalSend icon
+
+---
+
+### WP-31: Rust PTY Daemon
+
+**Phase**: 2 | **Batch**: 5 | **Dependencies**: WP-04
+
+**Scope**: Separate Rust binary that manages PTY processes independently of the Flutter app. Desktop only (macOS, Linux, Windows). Enables true tmux-style persistence — terminals survive app quit, crash, and reboot.
+
+**Input files**:
+- `core/Cargo.toml` (existing Rust core)
+- `app/lib/provider/pty_backend.dart` (abstract interface from WP-04)
+
+**Actions**:
+1. Add `portable-pty` crate to `core/Cargo.toml`
+2. Add daemon binary target to `core/Cargo.toml`
+3. Create `core/src/pty/mod.rs` — PTY management module
+4. Create `core/src/pty/daemon.rs` — daemon main loop, session management, accept client connections
+5. Create `core/src/pty/protocol.rs` — IPC message types and serialization (length-prefixed binary)
+6. Create `core/src/bin/xclouseau-daemon.rs` — daemon binary entry point
+7. IPC protocol over Unix socket (macOS/Linux) or named pipe (Windows):
+   - Client → Daemon: SPAWN, INPUT, RESIZE, KILL, LIST, ATTACH, DETACH
+   - Daemon → Client: OUTPUT, EXITED, SESSIONS
+8. Create `app/lib/util/daemon_client.dart` — Dart client for daemon IPC
+9. Create `app/lib/provider/pty_backend_daemon.dart` — daemon implementation of PtyBackend interface
+10. Swap TerminalProvider to use daemon backend on desktop, keep local backend as fallback
+11. Daemon lifecycle: lazy start on first terminal, auto-exit after 30s with no terminals and no clients
+
+**Output files**:
+- `core/src/pty/mod.rs`
+- `core/src/pty/daemon.rs`
+- `core/src/pty/protocol.rs`
+- `core/src/bin/xclouseau-daemon.rs`
+- Modified `core/Cargo.toml`
+- `app/lib/util/daemon_client.dart`
+- `app/lib/provider/pty_backend_daemon.dart`
+
+**Platform notes**:
+- macOS/Linux: Unix domain socket at `~/.xclouseau/daemon.sock`
+- Windows: Named pipe at `\\.\pipe\xclouseau`
+- Mobile/Web: N/A (viewer only, no local terminals)
+
+**Acceptance criteria**:
+- [ ] Daemon binary compiles and runs on macOS, Linux, Windows
+- [ ] Flutter app spawns terminals via daemon
+- [ ] Quit Flutter app → reopen → terminals still running with scrollback
+- [ ] Kill Flutter process → reopen → terminals reconnect
+- [ ] Daemon auto-exits after all terminals closed + 30s grace period
+- [ ] Daemon auto-starts when Flutter app needs a terminal
+- [ ] Fallback to flutter_pty if daemon unavailable
+
+---
+
+### WP-32: Terminal File Drop + Pickers
+
+**Phase**: 3 | **Batch**: 7 | **Dependencies**: WP-08, WP-18, WP-19
+
+**Scope**: Reuse LocalSend's file picker types (file, media, text, clipboard, folder) for terminal context. Add a toolbar near the terminal that picks files/media and pastes paths or content into the PTY.
+
+**Input files**:
+- `app/lib/util/native/file_picker.dart` (existing — FilePickerOption enum + PickFileAction)
+- `app/lib/pages/tabs/terminal_tab.dart` (from WP-08)
+- `app/lib/provider/terminal_provider.dart` (from WP-04)
+- `app/lib/util/ai_cli_detector.dart` (from WP-19)
+
+**Actions**:
+1. Create `app/lib/widget/terminal_file_toolbar.dart` — row of picker buttons near terminal
+2. Reuse FilePickerOption for terminal context with different targets:
+   - file → save to received dir, paste path into PTY
+   - media → save to received dir, paste path into PTY (or clipboard Cmd+V if AI CLI)
+   - text → type text directly into PTY
+   - clipboard → paste clipboard text into PTY, or save clipboard image and paste path
+   - folder → paste folder path into PTY
+3. Toolbar always visible on desktop terminals (collapsible)
+4. On mobile: accessible via action button
+5. Context-aware: if AI CLI detected, media picker copies to clipboard instead of pasting path
+
+**Output files**:
+- `app/lib/widget/terminal_file_toolbar.dart`
+- Modified `app/lib/pages/tabs/terminal_tab.dart` (integrate toolbar)
+
+**Reference**: See [ai-integration.md](ai-integration.md) for context-aware paste behavior
+
+**Acceptance criteria**:
+- [ ] Toolbar with File/Media/Paste/Text buttons visible near terminal
+- [ ] File picker → file path pasted into PTY
+- [ ] Media picker → path pasted (normal) or clipboard Cmd+V (AI CLI)
+- [ ] Text picker → text typed into PTY
+- [ ] Clipboard paste works for text and images
+- [ ] Folder path pasted correctly
+- [ ] Toolbar collapsible on desktop
+
+---
+
+### WP-33: Web Preview — Reverse Proxy + WebView Tab
+
+**Phase**: 3 | **Batch**: 7 | **Dependencies**: WP-12A, WP-12
+
+**Scope**: Any device can view another device's localhost web servers (dev servers, dashboards, etc.) through a reverse proxy. Adds a WebView tab type, localhost URL detection in terminal output, and a proxy route on the host's server. Works in all directions — phone previews Mac's localhost, Mac previews Windows' localhost, etc.
+
+**Input files**:
+- `app/lib/provider/network/server/server_provider.dart` (existing, add proxy routes)
+- `app/lib/util/simple_server.dart` (upgraded in WP-12A)
+- `app/lib/pages/tabs/terminal_tab.dart` (from WP-08, for URL detection)
+
+**Actions**:
+1. Create `app/lib/provider/network/server/controller/web_preview_controller.dart`
+   - Route: `GET /api/xclouseau/v1/web/:port/*path` → reverse proxy to `localhost:<port>/<path>`
+   - WebSocket proxy: handle `Upgrade: websocket` on proxied paths for HMR/hot reload
+   - Route: `GET /api/xclouseau/v1/ports` → list localhost ports currently listening
+2. Create `app/lib/pages/tabs/web_preview_tab.dart`
+   - WebView widget (webview_flutter or flutter_inappwebview) loading the proxied URL
+   - URL bar showing the proxied address
+   - Refresh button, back/forward navigation
+   - Tab shows favicon or site title
+3. Create `app/lib/util/localhost_detector.dart`
+   - Parse terminal output for localhost URL patterns: `localhost:\d+`, `127.0.0.1:\d+`, `0.0.0.0:\d+`
+   - Detect framework-specific output: "ready in" (Vite), "started server on" (Next.js), "Listening on" (Express)
+   - When detected: show prompt with "Open Preview" and "Open on Other Device" options
+4. Add `SessionSource.webPreview` variant to data model (deviceFingerprint, port, basePath)
+5. Register proxy routes in server_provider.dart
+6. Port scanner: periodically check common dev ports (3000-3999, 4000-4999, 5000-5999, 8000-8999) for listening TCP sockets
+7. Include detected ports in `GET /api/xclouseau/v1/sessions` response
+
+**Output files**:
+- `app/lib/provider/network/server/controller/web_preview_controller.dart`
+- `app/lib/pages/tabs/web_preview_tab.dart`
+- `app/lib/util/localhost_detector.dart`
+- Modified `app/lib/provider/network/server/server_provider.dart`
+- Modified `app/lib/model/terminal_session_source.dart` (add webPreview variant)
+
+**Reference**: See [terminal-streaming.md](terminal-streaming.md) for proxy route spec
+
+**Security notes**:
+- Only localhost ports are proxied — never external addresses
+- Host can disable web preview in settings (allowWebPreview toggle)
+- All proxy traffic goes through the existing mTLS server (:53317)
+- PIN protection applies if configured
+
+**Acceptance criteria**:
+- [ ] Phone can open Mac's localhost:3000 in a WebView tab
+- [ ] Mac can open Windows' localhost:8080 in a WebView tab
+- [ ] WebSocket proxied correctly (HMR/hot reload works in preview)
+- [ ] Localhost URL detected in terminal output → prompt shown
+- [ ] "Open Preview" opens WebView on current device
+- [ ] "Open on Other Device" shows device picker
+- [ ] Port list available via GET /ports endpoint
+- [ ] Proxy respects allowWebPreview setting
+- [ ] Self-signed cert handled in WebView (no cert errors)

@@ -62,6 +62,8 @@ common/lib/
 
 ### KEEP UNCHANGED — Rust Core
 
+**Important**: The Rust HTTP server (`core/src/http/server/mod.rs`) exists but is NOT used by the Flutter app in production. The actual HTTP server is a Dart `HttpServer` in `app/lib/provider/network/server/server_provider.dart` (port 53317). Rust core is used only for crypto, HTTP client, and WebRTC.
+
 ```
 core/src/
 ├── crypto/
@@ -72,13 +74,13 @@ core/src/
 ├── http/
 │   ├── client/mod.rs               KEEP  HTTP client with mTLS
 │   ├── server/
-│   │   ├── mod.rs                  KEEP  Server startup, TLS config
+│   │   ├── mod.rs                  KEEP  (unused by app — standalone test harness)
 │   │   ├── client_cert_verifier.rs KEEP  mTLS verification
 │   │   ├── controller/
-│   │   │   ├── v2.rs               KEEP  Legacy API
-│   │   │   ├── v3.rs               KEEP  Current API
-│   │   │   └── web.rs              KEEP  Web endpoints
-│   │   └── state.rs                KEEP  Server state
+│   │   │   ├── v2.rs               KEEP  (unused by app)
+│   │   │   ├── v3.rs               KEEP  (unused by app)
+│   │   │   └── web.rs              KEEP  (unused by app)
+│   │   └── state.rs                KEEP  (unused by app)
 │   └── dto.rs                      KEEP  Data transfer objects
 ├── webrtc/
 │   ├── signaling.rs                KEEP  WebRTC signaling
@@ -193,8 +195,8 @@ app/web/                            KEEP  (rebrand names in Phase 4)
                       xClouseau NEW CODE
                     ┌─────────────────────┐
                     │  WorkspacePage       │
-                    │  ProjectSidebar      │
-                    │  TerminalTabBar      │
+                    │  DeviceSidebar       │
+                    │  ChromeTabBar        │
                     │  TerminalTab         │
                     └──────────┬──────────┘
                                │ depends on
@@ -225,6 +227,55 @@ The new code sits ON TOP of LocalSend's stack.
 It does NOT replace any networking logic.
 ```
 
+## What Gets Reused for Terminal Features
+
+### File Pickers → Terminal Context
+
+All 6 `FilePickerOption` types from `app/lib/util/native/file_picker.dart` are reused for terminal context. Instead of sending to a device, they paste into the active terminal.
+
+```
+FilePickerOption.file       → paste file path into PTY
+FilePickerOption.folder     → paste folder path into PTY
+FilePickerOption.media      → paste path (normal) or clipboard Cmd+V (AI CLI)
+FilePickerOption.text       → type text directly into PTY
+FilePickerOption.clipboard  → paste clipboard text into PTY
+FilePickerOption.app        → N/A (Android only, not terminal-relevant)
+```
+
+See WP-32 in agent-work-packages.md for implementation details.
+
+### Tray + Window Infrastructure → Terminal Persistence
+
+The existing tray and window management gives us free process persistence (Layer 1):
+
+```
+window_watcher.dart    → checks minimizeToTray, calls hideToTray() on close
+tray_helper.dart       → hideToTray() / showFromTray() implementation
+autostart_helper.dart  → auto-start with --hidden flag (cross-platform)
+```
+
+- Window close → app hides to tray → Flutter process stays alive → PTY processes survive
+- Scrollback intact in memory (xterm.dart Terminal objects stay alive)
+- Layer 1 persistence requires zero new code — just enable `minimizeToTray: true` by default
+
+See data-model.md "Durable Sessions" section for the full 3-layer persistence architecture.
+
+### Receive Flow → "Paste to Terminal" Option
+
+When a file is received from another device, the receive flow is extended with a terminal option:
+
+```
+receive_controller.dart receives file
+        │
+        ▼
+Show notification with context-aware options:
+  [Save to Downloads]          ← existing LocalSend behavior
+  [Paste to terminal]          ← NEW: pastes path into active terminal
+  [Open]                       ← existing
+```
+
+See WP-18 in agent-work-packages.md for context-aware paste behavior.
+
 ## What Gets Extended (Details)
 
 ### 1. `server_provider.dart` — Add Terminal Routes
@@ -243,9 +294,14 @@ New routes (xClouseau):
   GET  /api/xclouseau/v1/sessions/:id/attach  (WebSocket)
   POST /api/xclouseau/v1/sessions/:id/input
   POST /api/xclouseau/v1/sessions/:id/resize
+  GET  /api/xclouseau/v1/ports                (list listening localhost ports)
+  GET  /api/xclouseau/v1/web/:port/*path      (reverse proxy to localhost)
+  GET  /api/xclouseau/v1/web/:port/_ws/*path  (WebSocket proxy for HMR)
 ```
 
-Both sets of routes coexist on the same HTTP server (port 5030).
+Both sets of routes coexist on the same Dart HTTP server (port 53317).
+
+**Prerequisite**: The current routing in `simple_server.dart` uses exact path matching — no parameterized routes (`:id`) and no WebSocket upgrade support. This must be upgraded first (see WP-12A in agent-work-packages.md).
 
 ### 2. `settings_provider.dart` — Add Terminal Settings
 

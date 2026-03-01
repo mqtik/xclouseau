@@ -5,6 +5,7 @@ import 'package:common/util/network_interfaces.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:localsend_app/model/state/network_state.dart';
+import 'package:localsend_app/provider/network/nearby_devices_provider.dart';
 import 'package:localsend_app/provider/settings_provider.dart';
 import 'package:localsend_app/util/native/platform_check.dart';
 import 'package:logging/logging.dart';
@@ -16,6 +17,7 @@ final _logger = Logger('NetworkInfo');
 final localIpProvider = ReduxProvider<LocalIpService, NetworkState>((ref) {
   return LocalIpService(
     ref.notifier(settingsProvider),
+    ref.notifier(nearbyDevicesProvider),
   );
 });
 
@@ -23,8 +25,9 @@ StreamSubscription? _subscription;
 
 class LocalIpService extends ReduxNotifier<NetworkState> {
   final SettingsService _settingsService;
+  final NearbyDevicesService _nearbyDevicesService;
 
-  LocalIpService(this._settingsService);
+  LocalIpService(this._settingsService, this._nearbyDevicesService);
 
   @override
   NetworkState init() {
@@ -52,6 +55,7 @@ class InitLocalIpAction extends ReduxAction<LocalIpService, NetworkState> {
       } else {
         _subscription = Connectivity().onConnectivityChanged.listen((_) async {
           await dispatchAsync(FetchLocalIpAction());
+          external(notifier._nearbyDevicesService).dispatch(StartMulticastScan());
         });
       }
     }

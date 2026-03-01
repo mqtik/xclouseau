@@ -70,6 +70,18 @@ class SettingsService extends PureNotifier<SettingsState> {
     shareViaLinkAutoAccept: _persistence.getShareViaLinkAutoAccept(),
     discoveryTimeout: _persistence.getDiscoveryTimeout(),
     advancedSettings: _persistence.getAdvancedSettingsEnabled(),
+    terminalDefaultShell: _persistence.getTerminalDefaultShell(),
+    terminalFontSize: _persistence.getTerminalFontSize(),
+    terminalFontFamily: _persistence.getTerminalFontFamily(),
+    terminalTheme: _persistence.getTerminalTheme(),
+    terminalScrollbackLines: _persistence.getTerminalScrollbackLines(),
+    terminalAllowRemoteAccess: _persistence.getTerminalAllowRemoteAccess(),
+    terminalRequirePin: _persistence.getTerminalRequirePin(),
+    terminalAllowWebPreview: _persistence.getTerminalAllowWebPreview(),
+    terminalRequireApproval: _persistence.getTerminalRequireApproval(),
+    terminalPin: _persistence.getTerminalPin(),
+    terminalMaxViewers: _persistence.getTerminalMaxViewers(),
+    terminalRequirePairing: _persistence.getTerminalRequirePairing(),
   );
 
   Future<void> setAlias(String alias) async {
@@ -246,5 +258,65 @@ class SettingsService extends PureNotifier<SettingsState> {
     state = state.copyWith(
       shareViaLinkAutoAccept: shareViaLinkAutoAccept,
     );
+  }
+
+  Future<void> setTerminalDefaultShell(String? shell) async {
+    await _persistence.setTerminalDefaultShell(shell);
+    state = state.copyWith(terminalDefaultShell: shell);
+  }
+
+  Future<void> setTerminalFontSize(double size) async {
+    await _persistence.setTerminalFontSize(size);
+    state = state.copyWith(terminalFontSize: size);
+  }
+
+  Future<void> setTerminalFontFamily(String family) async {
+    await _persistence.setTerminalFontFamily(family);
+    state = state.copyWith(terminalFontFamily: family);
+  }
+
+  Future<void> setTerminalTheme(String theme) async {
+    await _persistence.setTerminalTheme(theme);
+    state = state.copyWith(terminalTheme: theme);
+  }
+
+  Future<void> setTerminalScrollbackLines(int lines) async {
+    await _persistence.setTerminalScrollbackLines(lines);
+    state = state.copyWith(terminalScrollbackLines: lines);
+  }
+
+  Future<void> setTerminalAllowRemoteAccess(bool allow) async {
+    await _persistence.setTerminalAllowRemoteAccess(allow);
+    state = state.copyWith(terminalAllowRemoteAccess: allow);
+  }
+
+  Future<void> setTerminalRequirePin(bool require) async {
+    await _persistence.setTerminalRequirePin(require);
+    state = state.copyWith(terminalRequirePin: require);
+  }
+
+  Future<void> setTerminalAllowWebPreview(bool allow) async {
+    await _persistence.setTerminalAllowWebPreview(allow);
+    state = state.copyWith(terminalAllowWebPreview: allow);
+  }
+
+  Future<void> setTerminalRequireApproval(bool require) async {
+    await _persistence.setTerminalRequireApproval(require);
+    state = state.copyWith(terminalRequireApproval: require);
+  }
+
+  Future<void> setTerminalPin(String? pin) async {
+    await _persistence.setTerminalPin(pin);
+    state = state.copyWith(terminalPin: pin);
+  }
+
+  Future<void> setTerminalMaxViewers(int maxViewers) async {
+    await _persistence.setTerminalMaxViewers(maxViewers);
+    state = state.copyWith(terminalMaxViewers: maxViewers);
+  }
+
+  Future<void> setTerminalRequirePairing(bool require) async {
+    await _persistence.setTerminalRequirePairing(require);
+    state = state.copyWith(terminalRequirePairing: require);
   }
 }

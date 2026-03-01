@@ -9,7 +9,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:localsend_app/gen/strings.g.dart';
 import 'package:localsend_app/model/persistence/color_mode.dart';
+import 'package:localsend_app/model/closed_tab.dart';
 import 'package:localsend_app/model/persistence/favorite_device.dart';
+import 'package:localsend_app/model/project.dart';
 import 'package:localsend_app/model/persistence/receive_history_entry.dart';
 import 'package:localsend_app/model/send_mode.dart';
 import 'package:localsend_app/provider/window_dimensions_provider.dart';
@@ -90,6 +92,25 @@ const _deviceType = 'ls_device_type';
 const _deviceModel = 'ls_device_model';
 const _shareViaLinkAutoAccept = 'ls_share_via_link_auto_accept';
 const _advancedSettingsKey = 'ls_advanced_settings';
+
+const _xcDefaultShell = 'xc_default_shell';
+const _xcFontSize = 'xc_font_size';
+const _xcFontFamily = 'xc_font_family';
+const _xcTerminalTheme = 'xc_terminal_theme';
+const _xcScrollbackLines = 'xc_scrollback_lines';
+const _xcAllowRemoteAccess = 'xc_allow_remote_access';
+const _xcRequirePin = 'xc_require_pin';
+const _xcAllowWebPreview = 'xc_terminal_allow_web_preview';
+const _xcTerminalRequireApproval = 'xc_terminal_require_approval';
+const _xcTerminalPin = 'xc_terminal_pin';
+const _xcTerminalMaxViewers = 'xc_terminal_max_viewers';
+const _xcTerminalRequirePairing = 'xc_terminal_require_pairing';
+const _xcPairedDevices = 'xc_paired_devices';
+
+const _xcProjects = 'xc_projects';
+const _xcActiveProjectId = 'xc_active_project_id';
+const _xcActiveSessionId = 'xc_active_session_id';
+const _xcClosedTabs = 'xc_closed_tabs';
 
 final persistenceProvider = Provider<PersistenceService>((ref) {
   throw Exception('persistenceProvider not initialized');
@@ -548,5 +569,179 @@ class PersistenceService {
 
   Future<void> clear() async {
     await _prefs.clear();
+  }
+
+  String? getTerminalDefaultShell() {
+    return _prefs.getString(_xcDefaultShell);
+  }
+
+  Future<void> setTerminalDefaultShell(String? shell) async {
+    if (shell == null) {
+      await _prefs.remove(_xcDefaultShell);
+    } else {
+      await _prefs.setString(_xcDefaultShell, shell);
+    }
+  }
+
+  double getTerminalFontSize() {
+    return _prefs.getDouble(_xcFontSize) ?? 14.0;
+  }
+
+  Future<void> setTerminalFontSize(double size) async {
+    await _prefs.setDouble(_xcFontSize, size);
+  }
+
+  String getTerminalFontFamily() {
+    return _prefs.getString(_xcFontFamily) ?? 'JetBrains Mono';
+  }
+
+  Future<void> setTerminalFontFamily(String family) async {
+    await _prefs.setString(_xcFontFamily, family);
+  }
+
+  String getTerminalTheme() {
+    return _prefs.getString(_xcTerminalTheme) ?? 'dark';
+  }
+
+  Future<void> setTerminalTheme(String theme) async {
+    await _prefs.setString(_xcTerminalTheme, theme);
+  }
+
+  int getTerminalScrollbackLines() {
+    return _prefs.getInt(_xcScrollbackLines) ?? 10000;
+  }
+
+  Future<void> setTerminalScrollbackLines(int lines) async {
+    await _prefs.setInt(_xcScrollbackLines, lines);
+  }
+
+  bool getTerminalAllowRemoteAccess() {
+    return _prefs.getBool(_xcAllowRemoteAccess) ?? true;
+  }
+
+  Future<void> setTerminalAllowRemoteAccess(bool allow) async {
+    await _prefs.setBool(_xcAllowRemoteAccess, allow);
+  }
+
+  bool getTerminalRequirePin() {
+    return _prefs.getBool(_xcRequirePin) ?? false;
+  }
+
+  Future<void> setTerminalRequirePin(bool require) async {
+    await _prefs.setBool(_xcRequirePin, require);
+  }
+
+  bool getTerminalAllowWebPreview() {
+    return _prefs.getBool(_xcAllowWebPreview) ?? true;
+  }
+
+  Future<void> setTerminalAllowWebPreview(bool allow) async {
+    await _prefs.setBool(_xcAllowWebPreview, allow);
+  }
+
+  bool getTerminalRequireApproval() {
+    return _prefs.getBool(_xcTerminalRequireApproval) ?? true;
+  }
+
+  Future<void> setTerminalRequireApproval(bool require) async {
+    await _prefs.setBool(_xcTerminalRequireApproval, require);
+  }
+
+  String? getTerminalPin() {
+    return _prefs.getString(_xcTerminalPin);
+  }
+
+  Future<void> setTerminalPin(String? pin) async {
+    if (pin == null) {
+      await _prefs.remove(_xcTerminalPin);
+    } else {
+      await _prefs.setString(_xcTerminalPin, pin);
+    }
+  }
+
+  int getTerminalMaxViewers() {
+    return _prefs.getInt(_xcTerminalMaxViewers) ?? 5;
+  }
+
+  Future<void> setTerminalMaxViewers(int maxViewers) async {
+    await _prefs.setInt(_xcTerminalMaxViewers, maxViewers);
+  }
+
+  bool getTerminalRequirePairing() {
+    return _prefs.getBool(_xcTerminalRequirePairing) ?? true;
+  }
+
+  Future<void> setTerminalRequirePairing(bool require) async {
+    await _prefs.setBool(_xcTerminalRequirePairing, require);
+  }
+
+  String getPairedDevices() {
+    return _prefs.getString(_xcPairedDevices) ?? '[]';
+  }
+
+  Future<void> setPairedDevices(String pairedDevicesJson) async {
+    await _prefs.setString(_xcPairedDevices, pairedDevicesJson);
+  }
+
+  List<Project> getProjects() {
+    final raw = _prefs.getStringList(_xcProjects);
+    if (raw == null) return [];
+    final projects = <Project>[];
+    for (final entry in raw) {
+      try {
+        projects.add(Project.fromJson(jsonDecode(entry)));
+      } catch (e) {
+        _logger.warning('Skipping corrupt project entry: $e');
+      }
+    }
+    return projects;
+  }
+
+  Future<void> setProjects(List<Project> projects) async {
+    final raw = projects.map((p) => jsonEncode(p.toJson())).toList();
+    await _prefs.setStringList(_xcProjects, raw);
+  }
+
+  String? getActiveProjectId() {
+    return _prefs.getString(_xcActiveProjectId);
+  }
+
+  Future<void> setActiveProjectId(String? id) async {
+    if (id == null) {
+      await _prefs.remove(_xcActiveProjectId);
+    } else {
+      await _prefs.setString(_xcActiveProjectId, id);
+    }
+  }
+
+  String? getActiveSessionId() {
+    return _prefs.getString(_xcActiveSessionId);
+  }
+
+  Future<void> setActiveSessionId(String? id) async {
+    if (id == null) {
+      await _prefs.remove(_xcActiveSessionId);
+    } else {
+      await _prefs.setString(_xcActiveSessionId, id);
+    }
+  }
+
+  List<ClosedTab> getClosedTabs() {
+    final raw = _prefs.getStringList(_xcClosedTabs);
+    if (raw == null) return [];
+    final closedTabs = <ClosedTab>[];
+    for (final entry in raw) {
+      try {
+        closedTabs.add(ClosedTab.fromJson(jsonDecode(entry)));
+      } catch (e) {
+        _logger.warning('Skipping corrupt closed tab entry: $e');
+      }
+    }
+    return closedTabs;
+  }
+
+  Future<void> setClosedTabs(List<ClosedTab> tabs) async {
+    final raw = tabs.map((t) => jsonEncode(t.toJson())).toList();
+    await _prefs.setStringList(_xcClosedTabs, raw);
   }
 }

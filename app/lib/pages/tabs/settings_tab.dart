@@ -5,9 +5,13 @@ import 'package:common/constants.dart';
 import 'package:common/model/device.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
+import 'package:localsend_app/config/terminal_themes.dart';
 import 'package:localsend_app/config/theme.dart';
 import 'package:localsend_app/gen/strings.g.dart';
 import 'package:localsend_app/model/persistence/color_mode.dart';
+import 'package:localsend_app/model/state/settings_state.dart';
 import 'package:localsend_app/pages/about/about_page.dart';
 import 'package:localsend_app/pages/changelog_page.dart';
 import 'package:localsend_app/pages/donation/donation_page.dart';
@@ -15,6 +19,7 @@ import 'package:localsend_app/pages/language_page.dart';
 import 'package:localsend_app/pages/settings/network_interfaces_page.dart';
 import 'package:localsend_app/pages/tabs/settings_tab_controller.dart';
 import 'package:localsend_app/provider/settings_provider.dart';
+import 'package:localsend_app/provider/terminal_access_provider.dart';
 import 'package:localsend_app/provider/version_provider.dart';
 import 'package:localsend_app/util/alias_generator.dart';
 import 'package:localsend_app/util/device_type_ext.dart';
@@ -489,6 +494,144 @@ class SettingsTab extends StatelessWidget {
                     ],
                   ),
                   _SettingsSection(
+                    title: 'Terminal',
+                    children: [
+                      if (checkPlatformIsDesktop())
+                        _SettingsEntry(
+                          label: 'Default Shell',
+                          child: CustomDropdownButton<String>(
+                            value: vm.settings.terminalDefaultShell ?? 'System Default',
+                            items: [
+                              'System Default',
+                              if (checkPlatform([TargetPlatform.windows])) ...[
+                                'powershell.exe',
+                                'cmd.exe',
+                              ] else ...[
+                                '/bin/zsh',
+                                '/bin/bash',
+                              ],
+                            ].map((shell) {
+                              return DropdownMenuItem(
+                                value: shell,
+                                alignment: Alignment.center,
+                                child: Text(shell),
+                              );
+                            }).toList(),
+                            onChanged: (value) async {
+                              await ref.notifier(settingsProvider).setTerminalDefaultShell(
+                                value == 'System Default' ? null : value,
+                              );
+                            },
+                          ),
+                        ),
+                      _SettingsEntry(
+                        label: 'Font Size',
+                        child: TextFieldTv(
+                          name: 'Font Size',
+                          controller: TextEditingController(text: vm.settings.terminalFontSize.toString()),
+                          onChanged: (s) async {
+                            final size = double.tryParse(s);
+                            if (size != null) {
+                              await ref.notifier(settingsProvider).setTerminalFontSize(size);
+                            }
+                          },
+                        ),
+                      ),
+                      _SettingsEntry(
+                        label: 'Font Family',
+                        child: CustomDropdownButton<String>(
+                          value: vm.settings.terminalFontFamily,
+                          items: [
+                            'JetBrains Mono',
+                            'Fira Code',
+                            'Source Code Pro',
+                            'Menlo',
+                            'Courier New',
+                          ].map((font) {
+                            return DropdownMenuItem(
+                              value: font,
+                              alignment: Alignment.center,
+                              child: Text(font, style: TextStyle(fontFamily: font)),
+                            );
+                          }).toList(),
+                          onChanged: (value) async {
+                            await ref.notifier(settingsProvider).setTerminalFontFamily(value);
+                          },
+                        ),
+                      ),
+                      _SettingsEntry(
+                        label: 'Theme',
+                        child: CustomDropdownButton<String>(
+                          value: vm.settings.terminalTheme,
+                          items: ClouseauTerminalThemes.themeNames.map((themeName) {
+                            final themeData = ClouseauTerminalThemes.getTheme(themeName);
+                            return DropdownMenuItem(
+                              value: themeName,
+                              alignment: Alignment.center,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    width: 16,
+                                    height: 16,
+                                    decoration: BoxDecoration(
+                                      color: themeData.background,
+                                      border: Border.all(color: themeData.foreground, width: 1.5),
+                                      borderRadius: BorderRadius.circular(3),
+                                    ),
+                                    child: Center(
+                                      child: Container(
+                                        width: 6,
+                                        height: 6,
+                                        decoration: BoxDecoration(
+                                          color: themeData.foreground,
+                                          borderRadius: BorderRadius.circular(1),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(themeName),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: (value) async {
+                            await ref.notifier(settingsProvider).setTerminalTheme(value);
+                          },
+                        ),
+                      ),
+                      _SettingsEntry(
+                        label: 'Scrollback Lines',
+                        child: TextFieldTv(
+                          name: 'Scrollback Lines',
+                          controller: TextEditingController(text: vm.settings.terminalScrollbackLines.toString()),
+                          onChanged: (s) async {
+                            final lines = int.tryParse(s);
+                            if (lines != null) {
+                              await ref.notifier(settingsProvider).setTerminalScrollbackLines(lines);
+                            }
+                          },
+                        ),
+                      ),
+                      _BooleanEntry(
+                        label: 'Allow Remote Access',
+                        value: vm.settings.terminalAllowRemoteAccess,
+                        onChanged: (b) async {
+                          await ref.notifier(settingsProvider).setTerminalAllowRemoteAccess(b);
+                        },
+                      ),
+                      _BooleanEntry(
+                        label: 'Require PIN',
+                        value: vm.settings.terminalRequirePin,
+                        onChanged: (b) async {
+                          await ref.notifier(settingsProvider).setTerminalRequirePin(b);
+                        },
+                      ),
+                    ],
+                  ),
+                  _TerminalSecuritySection(settings: vm.settings),
+                  _SettingsSection(
                     title: t.settingsTab.other.title,
                     padding: const EdgeInsets.only(bottom: 0),
                     children: [
@@ -709,6 +852,233 @@ class _ButtonEntry extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _TerminalSecuritySection extends StatefulWidget {
+  final SettingsState settings;
+
+  const _TerminalSecuritySection({required this.settings});
+
+  @override
+  State<_TerminalSecuritySection> createState() => _TerminalSecuritySectionState();
+}
+
+class _TerminalSecuritySectionState extends State<_TerminalSecuritySection> {
+  late final TextEditingController _pinController;
+  bool _pinVisible = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _pinController = TextEditingController(text: widget.settings.terminalPin ?? '');
+  }
+
+  @override
+  void didUpdateWidget(_TerminalSecuritySection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.settings.terminalPin != widget.settings.terminalPin) {
+      final newPin = widget.settings.terminalPin ?? '';
+      if (_pinController.text != newPin) {
+        _pinController.text = newPin;
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _pinController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ref = context.ref;
+    final settings = widget.settings;
+    final terminalAccess = ref.watch(terminalAccessProvider);
+    final pairedDevices = terminalAccess.pairedDevices;
+    final theme = Theme.of(context);
+
+    return _SettingsSection(
+      title: 'Terminal Security',
+      children: [
+        _BooleanEntry(
+          label: 'Require device pairing',
+          value: settings.terminalRequirePairing,
+          onChanged: (b) async {
+            await ref.notifier(settingsProvider).setTerminalRequirePairing(b);
+          },
+        ),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 15),
+          child: Text(
+            'Only paired devices can access your terminals',
+            style: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.6), fontSize: 12),
+          ),
+        ),
+        _BooleanEntry(
+          label: 'Require approval for each session',
+          value: settings.terminalRequireApproval,
+          onChanged: (b) async {
+            await ref.notifier(settingsProvider).setTerminalRequireApproval(b);
+          },
+        ),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 15),
+          child: Text(
+            "You'll be asked before a device can view a terminal",
+            style: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.6), fontSize: 12),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 15),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Access PIN'),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Devices must enter this PIN to access terminals',
+                      style: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.6), fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              SizedBox(
+                width: 150,
+                child: TextField(
+                  controller: _pinController,
+                  obscureText: !_pinVisible,
+                  maxLength: 10,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'[0-9a-zA-Z]')),
+                  ],
+                  decoration: InputDecoration(
+                    hintText: 'Leave empty for no PIN',
+                    hintStyle: TextStyle(fontSize: 12, color: theme.colorScheme.onSurface.withOpacity(0.4)),
+                    counterText: '',
+                    filled: true,
+                    fillColor: theme.inputDecorationTheme.fillColor,
+                    border: OutlineInputBorder(
+                      borderRadius: theme.inputDecorationTheme.borderRadius,
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _pinVisible ? Icons.visibility_off : Icons.visibility,
+                        size: 20,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _pinVisible = !_pinVisible;
+                        });
+                      },
+                    ),
+                  ),
+                  onChanged: (value) async {
+                    await ref.notifier(settingsProvider).setTerminalPin(value.isEmpty ? null : value);
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        _SettingsEntry(
+          label: 'Maximum viewers per session',
+          child: CustomDropdownButton<int>(
+            value: settings.terminalMaxViewers,
+            items: [1, 2, 3, 5, 10].map((count) {
+              return DropdownMenuItem(
+                value: count,
+                alignment: Alignment.center,
+                child: Text('$count'),
+              );
+            }).toList(),
+            onChanged: (value) async {
+              await ref.notifier(settingsProvider).setTerminalMaxViewers(value);
+            },
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Row(
+            children: [
+              Text(
+                'Paired Devices',
+                style: theme.textTheme.titleSmall,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '(${pairedDevices.length} ${pairedDevices.length == 1 ? 'device' : 'devices'})',
+                style: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.6), fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+        if (pairedDevices.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 15),
+            child: Text(
+              'No paired devices',
+              style: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.5), fontStyle: FontStyle.italic),
+            ),
+          )
+        else
+          ...pairedDevices.map((device) {
+            final truncatedFingerprint = device.fingerprint.length > 12
+                ? '${device.fingerprint.substring(0, 12)}...'
+                : device.fingerprint;
+            final formattedDate = DateFormat.yMMMd().format(device.pairedAt);
+
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: theme.inputDecorationTheme.fillColor,
+                  borderRadius: theme.inputDecorationTheme.borderRadius,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(device.alias, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+                          const SizedBox(height: 2),
+                          Text(
+                            truncatedFingerprint,
+                            style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurface.withOpacity(0.5), fontFamily: 'monospace'),
+                          ),
+                          Text(
+                            formattedDate,
+                            style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurface.withOpacity(0.5)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        foregroundColor: theme.colorScheme.error,
+                      ),
+                      onPressed: () {
+                        ref.redux(terminalAccessProvider).dispatchAsync(UnpairDeviceAction(device.fingerprint));
+                      },
+                      child: const Text('Unpair'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+        const SizedBox(height: 7),
+      ],
     );
   }
 }

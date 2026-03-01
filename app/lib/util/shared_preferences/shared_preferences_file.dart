@@ -65,10 +65,10 @@ class SharedPreferencesFile extends SharedPreferencesStorePlatform {
   }
 
   void _write(Map<String, dynamic> data) {
-    if (!_file.existsSync()) {
-      _file.createSync(recursive: true);
-    }
-
-    _file.writeAsStringSync((beautify ? _beautyEncoder : _encoder).convert(data));
+    final encoded = (beautify ? _beautyEncoder : _encoder).convert(data);
+    final tempFile = File('${_file.path}.tmp');
+    tempFile.parent.createSync(recursive: true);
+    tempFile.writeAsStringSync(encoded);
+    tempFile.renameSync(_file.path);
   }
 }

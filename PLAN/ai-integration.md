@@ -101,22 +101,82 @@ The image drop zone appears ONLY when an AI CLI is detected.
 Otherwise, the terminal uses the full height.
 ```
 
+### Context-Aware Paste Behavior
+
+"Pasting" a file into a terminal means different things depending on what's running:
+
+```
+File/image received → "Paste to terminal"
+                              │
+                     ┌────────┴──────────┐
+                     │                   │
+              AI CLI detected?     Normal terminal
+              (claude, aider...)         │
+                     │                   │
+                     ▼                   ▼
+              Copy image to       Copy file to terminal's
+              clipboard →         current working directory
+              simulate Cmd+V      (pwd), type filename
+                     │                   │
+                     ▼                   ▼
+              Claude Code sees    $ ls
+              the image via its   photo.jpg  ← it's right here
+              clipboard handler   $ _
+```
+
+**AI CLI mode:**
+1. Image received from phone (or dropped on terminal)
+2. Copy image bytes to system clipboard
+3. Simulate Cmd+V / Ctrl+V key event into the PTY
+4. Claude Code picks up the image through its native clipboard paste handling
+
+**Normal terminal mode:**
+1. File/image received from phone
+2. Detect terminal's current working directory (`pwd`) via OSC 7
+3. Copy file to that directory using Dart File API (not shell commands)
+4. Type the filename into the terminal so user sees it
+
+**Detecting `pwd`:**
+- Modern shells emit OSC 7 escape sequence: `\e]7;file:///path\a`
+- Parse this from PTY output to track current directory
+- Fallback: read `/proc/{pid}/cwd` (Linux) or `lsof -p {pid}` (macOS)
+
 ### Image Drop Zone Behavior
 
 ```
 User drops image (or receives from phone):
-  1. Image saved to temp directory
-  2. File path typed into PTY: Pty.write("/tmp/xclouseau/photo.jpg\n")
-  3. AI CLI picks up the path (tool-dependent behavior)
 
-For Claude Code specifically:
-  Claude Code supports image paths as input
-  The path gets pasted at the cursor position
+  AI CLI detected:
+    1. Copy image to system clipboard
+    2. Simulate Cmd+V paste event into PTY
+    3. AI CLI receives image through its clipboard handler
 
-For other tools:
-  The path is pasted as text
-  The user decides how the tool uses it
+  Normal terminal:
+    1. Copy file to terminal's pwd (current working directory)
+    2. Type filename into PTY so user can reference it
+    3. User runs: open photo.jpg, git add photo.jpg, etc.
 ```
+
+### Desktop File Picker Integration
+
+The same LocalSend file pickers (file, media, text, clipboard, folder) are reused
+for terminal context. A toolbar near the terminal offers these pickers, but instead of
+sending to a device, they paste into the active terminal.
+
+```
+Terminal toolbar (visible on all terminals, not just AI CLI):
+  ┌─────────────────────────────────────────────┐
+  │  [File] [Media] [Paste] [Text]              │
+  └─────────────────────────────────────────────┘
+
+  file   → pick file → copy to pwd or paste path
+  media  → pick image → copy to pwd (normal) or clipboard paste (AI CLI)
+  text   → type text → types directly into PTY
+  paste  → clipboard → pastes into PTY
+  folder → pick folder → paste path into PTY
+```
+
+Reuses `FilePickerOption` from `app/lib/util/native/file_picker.dart`.
 
 ## Layer 2: Built-in Quick Chat
 
@@ -212,62 +272,87 @@ Similar for:
   gemini: npm install -g @google/gemini-cli
 ```
 
-## Phone-to-AI Image Pipeline
+## Phone-to-Terminal File Pipeline
 
-The killer feature: take a photo on your phone, it lands in your AI conversation on desktop.
+The killer feature: take a photo on your phone, it lands right where you need it on desktop.
 
-### Sequence Diagram
+### File Storage
+
+Two separate destinations:
 
 ```
-PHONE                          DESKTOP
+Regular file transfer (LocalSend):      Terminal-targeted files:
+  ~/Downloads/photo.jpg                   Platform cache directory
+  (user's configured destination)         (app-managed, auto-cleaned)
+
+  User manages lifecycle                  App manages lifecycle
+  Permanent until user deletes            Auto-cleaned after 7 days
+  Shows in Finder/Explorer                Hidden from user's folders
+```
+
+Platform cache directories:
+- macOS: `~/Library/Caches/xClouseau/received/`
+- Linux: `~/.cache/xclouseau/received/`
+- Windows: `%LOCALAPPDATA%\xClouseau\cache\received\`
+
+### Sequence Diagram (AI CLI Active)
+
+```
+PHONE                          DESKTOP (claude running)
 ┌──────────┐                   ┌──────────────────────────────┐
-│          │                   │  Terminal: claude             │
-│ Camera   │                   │                              │
-│  📸      │                   │  > analyze this screenshot   │
-└────┬─────┘                   │                              │
-     │                         │  Sure! Share the image.      │
-     │ take photo              │                              │
+│ Camera   │                   │  Terminal: claude             │
+│  📸      │                   │                              │
+└────┬─────┘                   │  > analyze this screenshot   │
+     │ take photo              │  Sure! Share the image.      │
      ▼                         │  █                           │
 ┌──────────┐                   └──────────────────────────────┘
-│ Gallery  │                              │
-│ select   │                              │
-└────┬─────┘                              │
-     │                                    │
-     │ tap "Send to Mac"                  │
-     ▼                                    │
-┌──────────┐   LocalSend file transfer    │
-│ LocalSend│──────────────────────────────►│
-│ HTTPS    │   POST /api/localsend/v2/    │
-│ upload   │   upload                     │
-└──────────┘                              │
-                                          ▼
+│ Send to  │  LocalSend file transfer
+│ Mac      │──────────────────────────────►┐
+└──────────┘                               │
+                                           ▼
                                ┌──────────────────────────────┐
-                               │ Receive Controller           │
-                               │ saves to /tmp/xclouseau/     │
-                               │ photo_20260226_103000.jpg     │
-                               └──────────┬───────────────────┘
-                                          │
-                                          ▼
-                               ┌──────────────────────────────┐
-                               │ Notification:                │
-                               │ "photo.jpg received          │
-                               │  from iPhone"                │
+                               │ Save to cache dir            │
+                               │ Notification: photo received │
                                │                              │
-                               │ [Paste to terminal] [Open]   │
+                               │ [Paste to terminal] [Save]   │
                                └──────────┬───────────────────┘
-                                          │ user clicks
                                           │ "Paste to terminal"
                                           ▼
                                ┌──────────────────────────────┐
-                               │ Active terminal (claude):    │
-                               │                              │
-                               │ Pty.write(                   │
-                               │   "/tmp/xclouseau/photo.jpg" │
-                               │ )                            │
-                               │                              │
-                               │ Path appears at cursor       │
-                               │ AI CLI processes the image   │
+                               │ AI CLI detected → clipboard  │
+                               │ Copy image to clipboard      │
+                               │ Simulate Cmd+V               │
+                               │ Claude Code receives image   │
                                └──────────────────────────────┘
+```
+
+### Sequence Diagram (Normal Terminal)
+
+```
+PHONE                          DESKTOP (zsh, pwd=/Users/ivan/myproject)
+┌──────────┐                   ┌──────────────────────────────┐
+│ Send     │                   │  Terminal: zsh               │
+│ photo    │  LocalSend        │  ~/myproject $               │
+└────┬─────┘──────────────────►│                              │
+     │                         └──────────────────────────────┘
+     ▼
+┌──────────────────────────────┐
+│ Save to cache dir            │
+│ Notification: photo received │
+│                              │
+│ [Paste to terminal] [Save]   │
+└──────────┬───────────────────┘
+           │ "Paste to terminal"
+           ▼
+┌──────────────────────────────┐
+│ Normal terminal → copy to pwd│
+│ cp cache/photo.jpg           │
+│    /Users/ivan/myproject/    │
+│ Type "photo.jpg" into PTY    │
+│                              │
+│ ~/myproject $ photo.jpg      │
+│ (file is right here)         │
+└──────────────────────────────┘
 ```
 
 ### File Routing Rules
@@ -275,23 +360,43 @@ PHONE                          DESKTOP
 ```
 When a file is received from another device:
 
-1. Is an AI CLI detected in the active terminal?
-   ├── Yes: Show "Paste to terminal" button prominently
-   └── No:  Show standard "Open" / "Save As" options
+1. Save to cache dir (terminal-targeted) or destination (regular transfer)?
+   ├── If sent via "Send to terminal" on phone: cache dir
+   └── If sent normally: user's configured destination (~/Downloads)
 
-2. Is the file an image?
-   ├── Yes: Show thumbnail in notification
-   └── No:  Show file icon + name + size
+2. Show notification with context-aware options:
+   ├── Active terminal has AI CLI? → [Paste to terminal] prominent
+   ├── Active terminal is normal shell? → [Copy to pwd] + [Paste path]
+   └── No active terminal → [Save] + [Open]
 
 3. Auto-paste setting?
-   ├── Enabled: automatically paste path to active terminal
+   ├── Enabled: automatically paste/copy based on context
    └── Disabled: show notification, wait for user action
 
 Settings:
   "Auto-paste received files to active terminal": toggle
   "Only auto-paste when AI CLI is active": toggle
-  "Received files directory": path picker
+  "Terminal received files cleanup": 7 days (configurable)
 ```
+
+## Terminal Output Detection — Localhost URLs
+
+The same output scanning used for AI CLI detection also detects localhost URLs for web preview.
+
+```
+Terminal output scanning runs on all PTY output:
+
+  1. AI CLI detection:  process name matches claude/codex/gemini/aider
+     → show enhanced tab icon + image drop zone
+
+  2. Localhost URL detection:  output matches http://localhost:\d+
+     → show "Open Preview" prompt
+
+Both detectors share the terminal output stream but are independent.
+The localhost detector is implemented in app/lib/util/localhost_detector.dart (WP-33).
+```
+
+See [terminal-streaming.md](terminal-streaming.md) for the full web preview proxy spec.
 
 ## Implementation Files
 
@@ -304,6 +409,11 @@ Settings:
 | CLI installer | `app/lib/util/cli_installer.dart` | Future |
 | AI settings section | `app/lib/pages/tabs/settings_tab.dart` (extend) | Phase 3 |
 | File-to-terminal bridge | `app/lib/provider/file_terminal_bridge.dart` | Phase 3 |
+| Terminal file toolbar | `app/lib/widget/terminal_file_toolbar.dart` | Phase 3 |
+| PWD tracker (OSC 7) | `app/lib/util/osc7_parser.dart` | Phase 1 |
+| Localhost URL detector | `app/lib/util/localhost_detector.dart` | Phase 3 |
+| Web preview tab | `app/lib/pages/tabs/web_preview_tab.dart` | Phase 3 |
+| Web preview proxy | `app/lib/provider/network/server/controller/web_preview_controller.dart` | Phase 3 |
 
 ## Priority Order
 
@@ -312,10 +422,11 @@ MVP (Phase 3):
   1. Phone sends image → desktop receives → paste path to terminal
   2. AI CLI detection (show enhanced tab icon)
   3. Image drop zone on desktop
+  4. Web preview — any device previews any device's localhost
 
 Post-MVP:
-  4. Built-in Quick Chat (Layer 2)
-  5. One-tap CLI install (Layer 3)
-  6. Auto-paste settings
-  7. Multiple AI provider support
+  5. Built-in Quick Chat (Layer 2)
+  6. One-tap CLI install (Layer 3)
+  7. Auto-paste settings
+  8. Multiple AI provider support
 ```

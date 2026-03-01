@@ -214,8 +214,12 @@ Future<void> postInit(BuildContext context, Ref ref, bool appStart) async {
   try {
     await ref.notifier(serverProvider).startServerFromSettings();
   } catch (e) {
-    if (context.mounted) {
-      context.showSnackBar(e.toString());
+    if (checkPlatformCanSpawnPty()) {
+      if (context.mounted) {
+        context.showSnackBar(e.toString());
+      }
+    } else {
+      _logger.warning('Server start failed (mobile viewer mode)', e);
     }
   }
 

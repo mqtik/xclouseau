@@ -13,8 +13,8 @@ xClouseau forms a peer-to-peer mesh where every device is both a server and a cl
                           │ │ Terminal: claude│
                           │ │ Terminal: vim │ │
                           │ └──────────────┘ │
-                          │ HTTP Server :5030│
-                          └───────┬──┬───────┘
+                          │ HTTP Server :53317│
+                          └───────┬──┬────────┘
                   ┌───────────────┘  └───────────────┐
                   │ mTLS + WebSocket                  │ mTLS + WebSocket
                   │ • discover                        │ • discover
@@ -28,8 +28,8 @@ xClouseau forms a peer-to-peer mesh where every device is both a server and a cl
       │ │ Terminal: pwsh│ │                │ │ Remote viewer│ │
       │ │ Terminal: node│ │                │ │ File sender  │ │
       │ └──────────────┘ │                │ │ Camera → AI  │ │
-      │ HTTP Server :5030│                │ └──────────────┘ │
-      └──────────────────┘                │ HTTP Server :5030│
+      │ HTTP Server :53317│                │ └──────────────┘ │
+      └──────────────────┘                │ HTTP Server :53317│
                                           └──────────────────┘
 
 Each device:
@@ -53,6 +53,7 @@ Each device:
 ├──────────────┼─────────┼───────────┼───────────┼────────────┤
 │ Local term   │ ✓ PTY   │ —         │ —         │ —          │
 │ Remote term  │ —       │ ✓ WS/mTLS │ ✓ WS/mTLS│ ✓ WebRTC   │
+│ Web preview  │ browser │ ✓ proxy   │ ✓ proxy  │ ✓ proxy    │
 │ File send    │ ✓ HTTPS │ ✓ HTTPS   │ ✓ HTTPS  │ ✓ WebRTC   │
 │ File receive │ ✓ HTTPS │ ✓ HTTPS   │ ✓ HTTPS  │ ✓ WebRTC   │
 │ Discovery    │ mDNS    │ mDNS     │ mDNS     │ Signaling  │
@@ -100,9 +101,9 @@ Web:     WebRTC data channels + WebSocket signaling
 │                                                                 │
 │  ┌──────────────────┐  ┌──────────────┐  ┌──────────────────┐  │
 │  │ Multicast        │  │ HTTP Server  │  │ WebRTC           │  │
-│  │ Discovery        │  │ (Rust/Hyper) │  │ (Rust)           │  │
+│  │ Discovery        │  │ (Dart)       │  │ (Rust)           │  │
 │  │                  │  │              │  │                  │  │
-│  │ UDP 224.0.0.167  │  │ :5030 mTLS   │  │ Data channels    │  │
+│  │ UDP 224.0.0.167  │  │ :53317 mTLS  │  │ Data channels    │  │
 │  │ + HTTP scan      │  │ file routes  │  │ Signaling WS     │  │
 │  │                  │  │ term routes  │  │                  │  │
 │  └──────────────────┘  └──────────────┘  └──────────────────┘  │
@@ -112,14 +113,39 @@ Web:     WebRTC data channels + WebSocket signaling
 │                                                                 │
 │  ┌──────────┐  ┌──────────────────┐  ┌───────────────────────┐ │
 │  │ crypto/  │  │ http/            │  │ webrtc/               │ │
-│  │          │  │                  │  │                       │ │
-│  │ cert.rs  │  │ server/mod.rs    │  │ signaling.rs          │ │
+│  │          │  │ (client only*)   │  │                       │ │
+│  │ cert.rs  │  │ server/mod.rs *  │  │ signaling.rs          │ │
 │  │ hash.rs  │  │ client/mod.rs    │  │ webrtc.rs             │ │
 │  │ nonce.rs │  │ controller/v3.rs │  │                       │ │
 │  │ token.rs │  │                  │  │                       │ │
 │  └──────────┘  └──────────────────┘  └───────────────────────┘ │
 │                                                                 │
+│  * The Rust HTTP server (Hyper) exists but is NOT used by the   │
+│    Flutter app. The production server is a Dart HttpServer       │
+│    in app/lib/provider/network/server/server_provider.dart.     │
+│    Rust core is used for crypto, HTTP client, and WebRTC only.  │
+│                                                                 │
 │  Tokio + Hyper + Rustls + ed25519-dalek + reqwest              │
+├─────────────────────────────────────────────────────────────────┤
+│                  PTY LAYER (Desktop Only)                        │
+│                                                                 │
+│  Phase 1: flutter_pty (in-process, dies with app)               │
+│  Phase 2: xclouseau-daemon (separate Rust binary)               │
+│                                                                 │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │ Phase 1: Flutter App ──► flutter_pty ──► /bin/zsh (PTY)   │ │
+│  │          (all in one process, dies on quit)                │ │
+│  │                                                            │ │
+│  │ Phase 2: Flutter App ──► Unix socket ──► xclouseau-daemon │ │
+│  │          (separate)        (IPC)         ├── /bin/zsh      │ │
+│  │                                          ├── /bin/bash     │ │
+│  │                                          └── claude (PTY)  │ │
+│  │          (daemon survives app quit/crash)                  │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                                                                 │
+│  Daemon uses portable-pty (Rust crate) for PTY management       │
+│  Desktop only: macOS, Linux, Windows                            │
+│  Mobile/Web: viewer only (no local PTY)                         │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -240,10 +266,10 @@ PHONE                                      DESKTOP (Mac)
 ```
 Device A starts up
         │
-        ├─► UDP multicast announcement ──► 224.0.0.167:5030
+        ├─► UDP multicast announcement ──► 224.0.0.167:53317
         │   {alias, fingerprint, port}
         │
-        ├─► HTTP subnet scan ─────────────► 192.168.1.1-255:5030
+        ├─► HTTP subnet scan ─────────────► 192.168.1.1-255:53317
         │   GET /api/localsend/v2/info       (parallel, 50 concurrent)
         │
         └─► Listen for announcements ◄───── other devices broadcasting
@@ -263,6 +289,35 @@ Device A starts up
 └─────────────────┘
 ```
 
+### Flow 5: Web Preview (Phone Views Desktop's localhost)
+
+```
+PHONE                                      MAC (running dev server on :3000)
+
+┌────────────┐                             ┌──────────────────────────┐
+│ WebView    │                             │ xClouseau server :53317  │
+│ Tab        │     mTLS HTTPS              │                          │
+│            │─────────────────────────────►│ /api/xclouseau/v1/      │
+│ loads URL: │                             │   web/3000/*path         │
+│ https://   │                             │                          │
+│ <mac-ip>:  │◄─────────────────────────────│ reverse proxy to        │
+│ 53317/api/ │     HTML/CSS/JS/WS          │ localhost:3000           │
+│ xclouseau/ │                             │                          │
+│ v1/web/    │                             └──────────┬───────────────┘
+│ 3000/      │                                        │ localhost
+└────────────┘                             ┌──────────▼───────────────┐
+                                           │ Dev server (vite/next)   │
+                                           │ localhost:3000            │
+                                           └──────────────────────────┘
+
+Detection: terminal output contains "localhost:3000"
+  → xClouseau shows "Open on this device?" prompt
+  → user taps → WebView tab opens with proxied URL
+
+The proxy runs on the same mTLS server (:53317).
+WebSocket connections are also proxied (for HMR/hot reload).
+```
+
 ## Platform Matrix
 
 ```
@@ -272,6 +327,7 @@ Device A starts up
 │ Local PTY     │   ✓    │    ✓    │   ✓   │  ✗*   │  ✗*  │ ✗** │
 │ Remote view   │   ✓    │    ✓    │   ✓   │   ✓   │   ✓  │  ✓  │
 │ Remote input  │   ✓    │    ✓    │   ✓   │   ✓   │   ✓  │  ✓  │
+│ Web preview   │   ✓    │    ✓    │   ✓   │   ✓   │   ✓  │  ✓  │
 │ File send     │   ✓    │    ✓    │   ✓   │   ✓   │   ✓  │  ✓  │
 │ File receive  │   ✓    │    ✓    │   ✓   │   ✓   │   ✓  │  ✓  │
 │ LAN discovery │   ✓    │    ✓    │   ✓   │   ✓   │   ✓  │ ✗***│
@@ -336,8 +392,10 @@ LocalSend (what we inherit):        xClouseau (what we add):
 │ • WebRTC transport     │          │   streaming protocol   │
 │ • 6-platform support   │          │ • AI CLI integration   │
 │ • Certificate identity │          │ • Tab/grid/carousel    │
-│ • HTTP server (Rust)   │          │   view modes           │
+│ • HTTP server (Dart)   │          │   view modes           │
 │ • System tray/share    │          │ • Image-to-terminal    │
 └────────────────────────┘          │   pipeline             │
+                                    │ • Web preview (reverse │
+                                    │   proxy for localhost) │
                                     └────────────────────────┘
 ```

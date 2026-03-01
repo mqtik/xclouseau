@@ -35,6 +35,18 @@ class SettingsState with SettingsStateMappable {
   final bool shareViaLinkAutoAccept;
   final int discoveryTimeout;
   final bool advancedSettings;
+  final String? terminalDefaultShell;
+  final double terminalFontSize;
+  final String terminalFontFamily;
+  final String terminalTheme;
+  final int terminalScrollbackLines;
+  final bool terminalAllowRemoteAccess;
+  final bool terminalRequirePin;
+  final bool terminalAllowWebPreview;
+  final bool terminalRequireApproval;
+  final String? terminalPin;
+  final int terminalMaxViewers;
+  final bool terminalRequirePairing;
 
   const SettingsState({
     required this.showToken,
@@ -63,5 +75,17 @@ class SettingsState with SettingsStateMappable {
     required this.shareViaLinkAutoAccept,
     required this.discoveryTimeout,
     required this.advancedSettings,
+    this.terminalDefaultShell,
+    this.terminalFontSize = 14.0,
+    this.terminalFontFamily = 'JetBrains Mono',
+    this.terminalTheme = 'dark',
+    this.terminalScrollbackLines = 10000,
+    this.terminalAllowRemoteAccess = true,
+    this.terminalRequirePin = false,
+    this.terminalAllowWebPreview = true,
+    this.terminalRequireApproval = true,
+    this.terminalPin,
+    this.terminalMaxViewers = 5,
+    this.terminalRequirePairing = true,
   });
 }

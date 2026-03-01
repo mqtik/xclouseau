@@ -5,6 +5,9 @@ import 'package:localsend_app/gen/strings.g.dart';
 import 'package:localsend_app/util/native/taskbar_helper.dart';
 import 'package:localsend_app/util/native/tray_helper.dart';
 
+final _closeTabStreamController = StreamController<void>.broadcast();
+Stream<void> get closeTabStream => _closeTabStreamController.stream;
+
 const _methodChannel = MethodChannel('main-delegate-channel');
 
 Future<void> setupStatusBar() async {
@@ -85,6 +88,9 @@ Future<void> setupMethodCallHandler() async {
         break;
       case 'showLocalSendFromMenuBar':
         await showFromTray();
+        break;
+      case 'closeTab':
+        _closeTabStreamController.add(null);
         break;
     }
   });

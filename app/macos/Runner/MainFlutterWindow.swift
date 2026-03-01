@@ -4,7 +4,6 @@ import window_manager
 import bitsdojo_window_macos  // used to make custom window bars on macOS (or any desktop operating system for that matter)
 
 class MainFlutterWindow: BitsdojoWindow {
-  // just following intructions from https://pub.dev/packages/bitsdojo_window
   override func bitsdojo_window_configure() -> UInt {
     return BDW_CUSTOM_FRAME | BDW_HIDE_ON_STARTUP
   }
@@ -15,9 +14,15 @@ class MainFlutterWindow: BitsdojoWindow {
     self.setFrame(windowFrame, display: true)
 
     RegisterGeneratedPlugins(registry: flutterViewController)
-    // window_manager: start window hidden
-    hiddenWindowAtLaunch()  
+    hiddenWindowAtLaunch()
 
     super.awakeFromNib()
+  }
+
+  override func performClose(_ sender: Any?) {
+    if let controller = contentViewController as? FlutterViewController {
+      let channel = FlutterMethodChannel(name: "main-delegate-channel", binaryMessenger: controller.engine.binaryMessenger)
+      channel.invokeMethod("closeTab", arguments: nil)
+    }
   }
 }

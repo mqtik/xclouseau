@@ -55,6 +55,10 @@ bool checkPlatformIsNotWaylandDesktop() {
   return true;
 }
 
+bool checkPlatformCanSpawnPty() {
+  return checkPlatform([TargetPlatform.macOS, TargetPlatform.linux, TargetPlatform.windows]);
+}
+
 /// This platform supports payment (in-app purchase)
 bool checkPlatformSupportPayment() {
   return checkPlatform([TargetPlatform.android, TargetPlatform.iOS, TargetPlatform.macOS]);

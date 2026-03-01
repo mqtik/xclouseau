@@ -27,6 +27,9 @@ class NearbyDevicesService extends ReduxNotifier<NearbyDevicesState> {
   final FavoritesService _favoriteService;
   final DiscoveryLogger _discoveryLogger;
 
+  final Map<String, DateTime> _lastSeen = {};
+  Timer? _cleanupTimer;
+
   NearbyDevicesService({
     required IsolateController isolateController,
     required FavoritesService favoriteService,
@@ -42,6 +45,16 @@ class NearbyDevicesService extends ReduxNotifier<NearbyDevicesState> {
     devices: {},
     signalingDevices: {},
   );
+
+  @override
+  get initialAction => _StartCleanupTimerAction();
+
+  @override
+  void dispose() {
+    _cleanupTimer?.cancel();
+    _cleanupTimer = null;
+    super.dispose();
+  }
 }
 
 /// Binds the UDP port and listens for incoming announcements.
@@ -57,10 +70,46 @@ class StartMulticastListener extends AsyncReduxAction<NearbyDevicesService, Near
   }
 }
 
-/// Removes all found devices from the state.
+class _StartCleanupTimerAction extends ReduxAction<NearbyDevicesService, NearbyDevicesState> {
+  @override
+  NearbyDevicesState reduce() {
+    notifier._cleanupTimer?.cancel();
+    notifier._cleanupTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+      dispatch(CleanupStaleDevicesAction());
+    });
+    return state;
+  }
+}
+
+class CleanupStaleDevicesAction extends ReduxAction<NearbyDevicesService, NearbyDevicesState> {
+  static const _staleTimeout = Duration(minutes: 5);
+
+  @override
+  NearbyDevicesState reduce() {
+    final now = DateTime.now();
+    final staleIps = <String>{};
+
+    notifier._lastSeen.removeWhere((ip, lastSeen) {
+      if (now.difference(lastSeen) > _staleTimeout) {
+        staleIps.add(ip);
+        return true;
+      }
+      return false;
+    });
+
+    if (staleIps.isEmpty) return state;
+
+    final updatedDevices = Map<String, Device>.from(state.devices)
+      ..removeWhere((ip, _) => staleIps.contains(ip));
+
+    return state.copyWith(devices: updatedDevices);
+  }
+}
+
 class ClearFoundDevicesAction extends ReduxAction<NearbyDevicesService, NearbyDevicesState> {
   @override
   NearbyDevicesState reduce() {
+    notifier._lastSeen.clear();
     return state.copyWith(
       devices: {},
     );
@@ -81,9 +130,10 @@ class RegisterDeviceAction extends AsyncReduxAction<NearbyDevicesService, Nearby
   Future<NearbyDevicesState> reduce() async {
     assert(device.ip?.isNotEmpty ?? false, 'IP must not be empty');
 
+    notifier._lastSeen[device.ip!] = DateTime.now();
+
     final favoriteDevice = notifier._favoriteService.state.firstWhereOrNull((e) => e.fingerprint == device.fingerprint);
     if (favoriteDevice != null && !favoriteDevice.customAlias) {
-      // Update existing favorite with new alias
       await external(notifier._favoriteService).dispatchAsync(UpdateFavoriteAction(favoriteDevice.copyWith(alias: device.alias)));
     } else {
       await Future.microtask(() {});
