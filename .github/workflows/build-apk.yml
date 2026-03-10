@@ -78,7 +78,7 @@ jobs:
         run: flutter build apk --split-per-abi
 
       - name: Upload APK artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: clouseau-apk-${{ steps.get_version.outputs.version }}
           path: |
